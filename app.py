@@ -119,42 +119,43 @@ class FairnessMultimodalModernBackbone(nn.Module):
 
 @st.cache_resource
 def load_selected_model(selected_backbone):
-    # (backbone_type, filename, expected_meta_dim)
     file_map = {
         "Zero-Leakage Class-Weighted Vision Mamba (Recommended)": ("mamba", "agentic_mamba_guide_balanced.pth", 13),
+        "Class-Weighted Vision Mamba (Image-Stratified)": ("mamba", "agentic_mamba_weighted_best.pth", 19),
         "Standard Vision Mamba (Group-DRO)": ("mamba", "agentic_mamba_best.pth", 19),
         "Multimodal Swin Transformer": ("swin", "agentic_swin_best.pth", 19),
         "Multimodal ViT-B/16": ("vit", "agentic_vit_best.pth", 19)
     }
     b_key, filename, meta_dim = file_map[selected_backbone]
 
+    ckpt_path = filename if os.path.exists(filename) else None
+    if ckpt_path is None:
+        try:
+            ckpt_path = hf_hub_download(repo_id="lowanshivinay/skin-lesion", filename=filename)
+        except Exception:
+            ckpt_path = None
+
+    state_dict = None
+    if ckpt_path is not None:
+        state_dict = torch.load(ckpt_path, map_location=device)
+        if "meta_projector.0.weight" in state_dict:
+            meta_dim = int(state_dict["meta_projector.0.weight"].shape[1])
+
     if b_key == "vit":
         model = AgenticMultimodalViT(num_classes=7, meta_dim=meta_dim).to(device)
     else:
         model = FairnessMultimodalModernBackbone(backbone_type=b_key, num_classes=7, meta_dim=meta_dim).to(device)
 
-    # Check local file first (also supports renamed agentic_mamba_weighted_best.pth)
-    ckpt_path = None
-    if os.path.exists(filename):
-        ckpt_path = filename
-    elif filename == "agentic_mamba_guide_balanced.pth" and os.path.exists("agentic_mamba_weighted_best.pth"):
-        ckpt_path = "agentic_mamba_weighted_best.pth"
-        filename = "agentic_mamba_weighted_best.pth"
-    else:
-        try:
-            ckpt_path = hf_hub_download(repo_id="lowanshivinay/skin-lesion", filename=filename)
-        except Exception:
-            if filename == "agentic_mamba_guide_balanced.pth":
-                try:
-                    ckpt_path = hf_hub_download(repo_id="lowanshivinay/skin-lesion", filename="agentic_mamba_weighted_best.pth")
-                    filename = "agentic_mamba_weighted_best.pth"
-                except Exception:
-                    ckpt_path = None
-
-    if ckpt_path is not None:
-        state_dict = torch.load(ckpt_path, map_location=device)
-        model.load_state_dict(state_dict, strict=False)
-        status_msg = f"Loaded `{filename}` (meta_dim={meta_dim}) successfully."
+    if state_dict is not None:
+        model_dict = model.state_dict()
+        # Shape-safe filtering prevents any RuntimeError size mismatch
+        compatible_weights = {
+            k: v for k, v in state_dict.items()
+            if k in model_dict and v.shape == model_dict[k].shape
+        }
+        model_dict.update(compatible_weights)
+        model.load_state_dict(model_dict)
+        status_msg = f"Loaded `{filename}` ({len(compatible_weights)}/{len(model_dict)} layers, meta_dim={meta_dim})."
     else:
         status_msg = f"Checkpoint `{filename}` not found locally or on Hugging Face."
 
@@ -329,6 +330,7 @@ selected_backbone = st.sidebar.selectbox(
     "Select Multimodal Backbone:",
     [
         "Zero-Leakage Class-Weighted Vision Mamba (Recommended)",
+        "Class-Weighted Vision Mamba (Image-Stratified)",
         "Standard Vision Mamba (Group-DRO)",
         "Multimodal Swin Transformer",
         "Multimodal ViT-B/16"
@@ -356,7 +358,6 @@ if app_mode == "1. Live Multi-Agent Clinical Diagnosis":
     if uploaded_file:
         raw_image = Image.open(uploaded_file).convert("RGB")
 
-        # Dynamically construct 13-dim or 19-dim metadata vector matching selected checkpoint
         age_scaled = (input_age - 50.0) / 15.0
         sex_vec = [1.0 if input_sex == s else 0.0 for s in ['female', 'male', 'unknown']]
         site_vec = [1.0 if input_site == s else 0.0 for s in ANATOMICAL_SITES]
@@ -364,7 +365,9 @@ if app_mode == "1. Live Multi-Agent Clinical Diagnosis":
             meta_feats = np.array([age_scaled] + sex_vec + site_vec, dtype=np.float32)
         else:
             fitz_vec = [1.0 if fitz_num == f else 0.0 for f in [1, 2, 3, 4, 5, 6]]
-            meta_feats = np.array([age_scaled] + sex_vec + site_vec + fitz_vec, dtype=np.float32)
+            base_vec = [age_scaled] + sex_vec + site_vec + fitz_vec
+            meta_feats = np.zeros(expected_meta_dim, dtype=np.float32)
+            meta_feats[:min(len(base_vec), expected_meta_dim)] = base_vec[:expected_meta_dim]
 
         meta_tensor = torch.tensor(meta_feats).unsqueeze(0).to(device)
 
