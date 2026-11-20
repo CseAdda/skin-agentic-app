@@ -17,7 +17,7 @@ from huggingface_hub import hf_hub_download
 # 1. PAGE SETUP & GLOBAL CONFIGURATION
 # =====================================================================
 st.set_page_config(
-    page_title="Fair & Robust Agentic Dermatology AI Hub",
+    page_title="Fair, Class-Balanced & Robust Agentic Dermatology AI Hub",
     page_icon="🔬",
     layout="wide"
 )
@@ -120,9 +120,9 @@ class FairnessMultimodalModernBackbone(nn.Module):
 @st.cache_resource
 def load_selected_model(selected_backbone):
     file_map = {
-        "Zero-Leakage Class-Weighted Vision Mamba (Recommended)": ("mamba", "agentic_mamba_guide_balanced.pth", 13),
+        "Zero-Leakage Inverse-Weighted Vision Mamba (Recommended)": ("mamba", "agentic_mamba_guide_balanced.pth", 13),
         "Class-Weighted Vision Mamba (Image-Stratified)": ("mamba", "agentic_mamba_weighted_best.pth", 19),
-        "Standard Vision Mamba (Group-DRO)": ("mamba", "agentic_mamba_best.pth", 19),
+        "Standard Vision Mamba (Unweighted / Group-DRO)": ("mamba", "agentic_mamba_best.pth", 19),
         "Multimodal Swin Transformer": ("swin", "agentic_swin_best.pth", 19),
         "Multimodal ViT-B/16": ("vit", "agentic_vit_best.pth", 19)
     }
@@ -148,7 +148,7 @@ def load_selected_model(selected_backbone):
 
     if state_dict is not None:
         model_dict = model.state_dict()
-        # Shape-safe filtering prevents any RuntimeError size mismatch
+        # Shape-safe filtering guarantees zero RuntimeError size mismatch
         compatible_weights = {
             k: v for k, v in state_dict.items()
             if k in model_dict and v.shape == model_dict[k].shape
@@ -321,17 +321,17 @@ app_mode = st.sidebar.radio(
     "Select System Mode:",
     [
         "1. Live Multi-Agent Clinical Diagnosis",
-        "2. PhD Zero-Leakage & Class-Balance Results",
-        "3. Guide-Aligned System Workflow"
+        "2. Complete PhD Ablation, Macro vs Weighted & Zero-Leakage Benchmarks",
+        "3. Guide-Aligned End-to-End System Workflow"
     ]
 )
 
 selected_backbone = st.sidebar.selectbox(
     "Select Multimodal Backbone:",
     [
-        "Zero-Leakage Class-Weighted Vision Mamba (Recommended)",
+        "Zero-Leakage Inverse-Weighted Vision Mamba (Recommended)",
         "Class-Weighted Vision Mamba (Image-Stratified)",
-        "Standard Vision Mamba (Group-DRO)",
+        "Standard Vision Mamba (Unweighted / Group-DRO)",
         "Multimodal Swin Transformer",
         "Multimodal ViT-B/16"
     ]
@@ -343,7 +343,7 @@ st.sidebar.caption(model_status)
 # MODE 1: LIVE MULTI-AGENT DIAGNOSIS
 # ---------------------------------------------------------------------
 if app_mode == "1. Live Multi-Agent Clinical Diagnosis":
-    st.title("🔬 Zero-Leakage & Class-Balanced Multi-Agent Dermatology System")
+    st.title("🔬 Zero-Leakage, Class-Balanced & Fair Multi-Agent Dermatology System")
     st.write("Upload a dermoscopic lesion image and configure patient metadata to execute the 4-agent verification and cross-agent consistency pipeline.")
 
     st.sidebar.header("📋 Patient & Skin-Tone Metadata")
@@ -423,65 +423,108 @@ if app_mode == "1. Live Multi-Agent Clinical Diagnosis":
         st.info("👈 Upload a dermoscopy image from the sidebar to run the multi-agent diagnostic and consistency audit pipeline.")
 
 # ---------------------------------------------------------------------
-# MODE 2: PhD ZERO-LEAKAGE & CLASS-BALANCE BENCHMARK RESULTS
+# MODE 2: COMPLETE PhD ABLATION, MACRO VS WEIGHTED & ZERO-LEAKAGE RESULTS
 # ---------------------------------------------------------------------
-elif app_mode == "2. PhD Zero-Leakage & Class-Balance Results":
-    st.title("📊 PhD Experimental Benchmarks (Zero-Leakage 60/20/20 Protocol)")
-    st.markdown("Evaluated on **HAM10000** ($N=10,015$) using a strict **Zero-Leakage `lesion_id` Grouped Split** (**4,481 Train / 1,494 Val / 1,495 Test unique lesions**) with untouched verification and test sets.")
+elif app_mode == "2. Complete PhD Ablation, Macro vs Weighted & Zero-Leakage Benchmarks":
+    st.title("📊 Complete PhD Experimental Benchmarks (HAM10000, N = 10,015)")
+    st.markdown("""
+    Comprehensive experimental comparison across **Unweighted Cross-Entropy**, **Full Inverse Class-Frequency Weighted CE ($w_i = \\frac{N}{K \\times n_i}$)**, **Smooth Square-Root Weighted CE ($w_i^{0.5}$)**, **Minority-Specific Color/Crop Augmentation**, **Zero-Leakage `lesion_id` Grouped 60/20/20 Splits**, **Macro vs. Weighted Averages**, and **Fitzpatrick Skin-Tone Fairness**.
+    """)
 
-    st.subheader("1. Zero-Leakage Class-Imbalance Weighting Ablation Study")
+    # TABLE 1: Complete Chronological & Methodological Ablation
+    st.subheader("1. Complete Chronological & Methodological Ablation Study (All Experiments)")
     ablation_df = pd.DataFrame({
-        "Training Objective (60% Train Split Only)": [
-            "1. Unweighted Cross-Entropy (Baseline)",
-            "2. Full Inverse Weighted CE (w_i = N / (K * n_i))",
-            "3. Smooth Square-Root Weighted CE (w_i^0.5, Mean=1)"
+        "Experiment / Objective (60/20/20 Split)": [
+            "Exp 1: Unimodal ResNet-50 Baseline (80/20 Reference)",
+            "Exp 2: Multimodal ViT Cross-Attention (80/20 Reference)",
+            "Exp 3: Unweighted Cross-Entropy Baseline (Zero-Leakage lesion_id)",
+            "Exp 4: Full Inverse Weighted CE [w_i = N/(K*n_i)] (Zero-Leakage lesion_id)",
+            "Exp 5: Smooth Square-Root Weighted CE [w_i^0.5] (Zero-Leakage lesion_id)",
+            "Exp 6: Minority-Only ColorJitter/Crop Aug + Weighted CE (Negative Ablation)",
+            "Exp 7: Class-Weighted Vision Mamba + Uniform Geometric Aug (Image-Stratified)"
         ],
-        "Test Acc (%)": [86.54, 84.41, 85.35],
-        "Balanced Acc (%)": [70.21, 70.65, 69.95],
-        "Macro F1": [0.7191, 0.6953, 0.6983],
-        "AUC-ROC": [0.9728, 0.9381, 0.9630],
-        "VASC Recall": ["82.35%", "97.06% (+14.71%)", "97.06% (+14.71%)"],
-        "BCC Recall": ["78.00%", "81.00% (+3.00%)", "75.00%"]
+        "Test Acc (%)": [88.92, 89.87, 86.54, 84.41, 85.35, 80.58, 84.02],
+        "Balanced Acc / Macro Recall (%)": ["—", 81.69, 70.21, 70.65, 69.95, 46.11, 84.88],
+        "Macro F1": ["—", 0.8260, 0.7191, 0.6953, 0.6983, 0.4531, 0.7873],
+        "Weighted F1": ["—", "—", 0.8635, 0.8449, 0.8504, 0.7780, "—"],
+        "AUC-ROC": ["—", "—", 0.9728, 0.9381, 0.9630, 0.8598, 0.9646],
+        "Key Scientific Takeaway": [
+            "Image-only baseline without clinical metadata",
+            "Multimodal metadata fusion improved accuracy (+0.95%)",
+            "Zero-leakage baseline (4,481 Train / 1,494 Val / 1,495 Test lesions)",
+            "Highest Zero-Leakage Balanced Acc (70.65%); VASC Recall 97.06%, BCC 81.00%",
+            "Balanced trade-off (85.35% Acc, 0.9630 AUC, VASC Recall 97.06%)",
+            "Class-specific ColorJitter induced Train-Test color domain shift",
+            "Highest Balanced Acc (84.88%) & Melanoma Recall (83.41%)"
+        ]
     })
     st.table(ablation_df)
-    st.success("Key Scientific Finding: Under zero lesion leakage, Full Inverse Class Weighting boosted Balanced Accuracy to 70.65%, Vascular Lesion (VASC) sensitivity to 97.06%, and Basal Cell Carcinoma (BCC) sensitivity to 81.00%.")
 
-    st.subheader("2. Per-Class Performance Breakdown (Zero-Leakage Weighted Vision Mamba)")
-    class_df = pd.DataFrame({
+    # TABLE 2: Macro Average vs Weighted Average Direct Comparison (Zero-Leakage 60/20/20)
+    st.subheader("2. Macro Average vs. Weighted Average Comparison (Zero-Leakage 20% Test, N = 2,014)")
+    macro_weighted_df = pd.DataFrame({
+        "Loss Function / Strategy": [
+            "1. Unweighted Cross-Entropy (Baseline)",
+            "2. Full Inverse Class-Weighted CE (w_i = N / (K * n_i))",
+            "3. Smooth Square-Root Weighted CE (w_i^0.5, Mean = 1.0)",
+            "4. Minority-Only Color/Crop Aug + Weighted CE"
+        ],
+        "Macro Precision": [0.7833, 0.7493, 0.7382, 0.7207],
+        "Macro Recall (Balanced Acc)": [0.7021, 0.7065, 0.6995, 0.4611],
+        "Macro F1-Score": [0.7191, 0.6953, 0.6983, 0.4531],
+        "Weighted Precision": [0.8660, 0.8518, 0.8515, 0.8197],
+        "Weighted Recall (Overall Acc)": [0.8654, 0.8441, 0.8535, 0.8058],
+        "Weighted F1-Score": [0.8635, 0.8449, 0.8504, 0.7780]
+    })
+    st.table(macro_weighted_df)
+    st.info("Why both Macro and Weighted Averages are reported: Weighted averages reflect overall population accuracy dominated by Melanocytic Nevi (NV, ~67%), whereas Macro averages treat all 7 skin diseases equally regardless of sample size.")
+
+    # TABLE 3: Per-Class Inverse Weights & Sensitivity Comparison (Unweighted vs Full Inverse vs Smooth)
+    st.subheader("3. Per-Class Inverse Weights (w_i) & Recall Comparison (Zero-Leakage 60/20/20)")
+    per_class_df = pd.DataFrame({
         "Class": ["akiec", "bcc", "bkl", "df", "mel", "nv", "vasc"],
         "Condition": [CLASS_NAMES[c] for c in DISEASE_CLASSES],
-        "Train Weight (w_i)": [4.4907, 2.6070, 1.2840, 13.1956, 1.2764, 0.2141, 11.7495],
-        "Precision": [0.5316, 0.6750, 0.6818, 1.0000, 0.6290, 0.9419, 0.7857],
-        "Recall (Sensitivity)": [0.6176, 0.8100, 0.7317, 0.2727, 0.6261, 0.9164, 0.9706],
-        "F1-Score": [0.5714, 0.7364, 0.7059, 0.4286, 0.6275, 0.9290, 0.8684],
-        "Untouched Test Support": [68, 100, 205, 22, 222, 1363, 34]
+        "Train Count (n_i)": [191, 329, 668, 65, 672, 4006, 73],
+        "Full Inverse Weight (w_i)": [4.4907, 2.6070, 1.2840, 13.1956, 1.2764, 0.2141, 11.7495],
+        "Smooth Weight (w_i^0.5)": [0.9032, 0.6881, 0.4830, 1.5484, 0.4816, 0.1972, 1.4610],
+        "Unweighted Recall": ["72.06%", "78.00%", "73.66%", "27.27%", "63.51%", "94.64%", "82.35%"],
+        "Full Inverse Recall": ["61.76%", "81.00%", "73.17%", "27.27%", "62.61%", "91.64%", "97.06%"],
+        "Smooth Weighted Recall": ["72.06%", "75.00%", "68.78%", "22.73%", "59.91%", "94.13%", "97.06%"],
+        "Full Inverse Precision": [0.5316, 0.6750, 0.6818, 1.0000, 0.6290, 0.9419, 0.7857],
+        "Full Inverse F1": [0.5714, 0.7364, 0.7059, 0.4286, 0.6275, 0.9290, 0.8684],
+        "Test Support": [68, 100, 205, 22, 222, 1363, 34]
     })
-    st.dataframe(class_df, use_container_width=True)
+    st.dataframe(per_class_df, use_container_width=True)
 
-    st.subheader("3. Multi-Backbone & Skin-Tone Fairness Comparison (60/20/20)")
+    # TABLE 4: Multi-Backbone & Skin-Tone Fairness Comparison
+    st.subheader("4. Multi-Backbone & Fitzpatrick Skin-Tone Fairness Comparison (60/20/20)")
     backbone_df = pd.DataFrame({
-        "Architecture": [
-            "Multimodal Swin Transformer",
-            "Multimodal ViT-B/16",
-            "Multimodal Vision Mamba (Group-DRO)",
-            "Class-Weighted Vision Mamba (Image-Stratified)"
+        "Multimodal Backbone": [
+            "Multimodal Swin Transformer (Unweighted)",
+            "Multimodal ViT-B/16 (Unweighted)",
+            "Multimodal Vision Mamba (Group-DRO Fairness)",
+            "Class-Weighted Vision Mamba (Uniform Geometric Aug)"
         ],
         "Clean Acc (%)": [86.02, 86.57, 86.77, 84.02],
         "Balanced Acc (%)": [71.32, 73.70, 78.91, 84.88],
         "Macro F1": [0.7476, 0.7690, 0.7761, 0.7873],
-        "Fairness (Light vs Dark Skin)": ["—", "—", "86.76% vs 87.10%", "84.10% vs 82.95%"]
+        "Light Skin (Fitz I–III) Acc": ["—", "—", "86.76%", "84.10%"],
+        "Dark Skin (Fitz IV–VI) Acc": ["—", "—", "87.10%", "82.95%"],
+        "Subgroup Disparity Gap": ["—", "—", "0.34% (Near-Zero Bias)", "1.15% (Equitable Parity)"]
     })
     st.table(backbone_df)
 
 # ---------------------------------------------------------------------
 # MODE 3: GUIDE-ALIGNED WORKFLOW
 # ---------------------------------------------------------------------
-elif app_mode == "3. Guide-Aligned System Workflow":
+elif app_mode == "3. Guide-Aligned End-to-End System Workflow":
     st.title("🧩 Guide-Aligned Multi-Agent Trustworthy Workflow")
     st.markdown("""
-    This architecture implements all four revised PhD objectives with Zero-Leakage Grouped Splitting, Inverse Class-Frequency Balancing, and Cross-Agent Logical Consistency:
-    1. **Vision Agent (Zero-Leakage & Class-Balanced Multimodal Backbone):** Partitioned by unique `lesion_id` (`60% Train / 20% Val / 20% Test`) with Inverse Class-Frequency Weighting ($w_i = \\frac{N}{K \\times n_i}$) computed strictly on the training split.
-    2. **Axiomatic XAI Agent:** Computes gradient-based pixel attributions and audits the **Lesion Mask Overlap Ratio** to verify morphological grounding.
-    3. **Robustness Agent:** Stress-tests model stability against simulated hairs, dermoscopic ruler ticks, optical blur, and lighting shifts.
-    4. **Logical Consistency Arbitrator & Clinical Agent:** Enforces cross-agent rules (XAI grounding, acquisition stability, and demographic sanity checks) to compute a **Unified Trust Consensus Score** before generating structured clinical triage reports.
+    This architecture unifies every component of the PhD research into an end-to-end trustworthy clinical pipeline:
+    1. **Zero-Leakage Grouped Data Partitioning (`lesion_id`):** Enforces strict separation (`60% Train / 20% Val / 20% Test`) so multiple images of the same patient/lesion never leak across splits, keeping validation and test sets 100% untouched.
+    2. **Inverse Class-Frequency & Smooth Weighted Cross-Entropy:** Computes class weights $w_i = \\frac{N}{K \\times n_i}$ (and smoothed $w_i^{0.5}$) strictly on the 60% training split to counteract the 58:1 HAM10000 class imbalance.
+    3. **Vision Agent (Multimodal Cross-Attention Fusion):** Isolates the lesion via Otsu segmentation and fuses visual features (**Vision Mamba / Swin / ViT-B/16**) with patient metadata via Multi-Head Cross-Attention.
+    4. **Axiomatic XAI Agent:** Computes gradient saliency attributions and verifies **Lesion Mask Overlap %** to confirm morphological grounding rather than background skin-tone shortcuts.
+    5. **Robustness Stress Agent:** Audits prediction stability against simulated hairs, ruler ticks, Gaussian blur, and illumination shifts.
+    6. **Logical Consistency Arbitrator & Clinical Agent:** Evaluates Shannon entropy, XAI grounding, stability, and demographic rules to compute a **Unified Trust Consensus Score** before generating structured triage reports.
     """)
